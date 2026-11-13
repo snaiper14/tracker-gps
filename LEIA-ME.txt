@@ -1,0 +1,21 @@
+TRACKER GPS — versão 0.1
+
+Arquivos:
+- index.html: aplicativo inicial com GPS, distância, cronômetro, máxima e histórico local.
+- manifest.webmanifest: permite instalar como PWA em navegadores compatíveis.
+- sw.js: cache básico para abrir a interface offline.
+
+PUBLICAÇÃO:
+1. No GitHub, abra o repositório tracker-gps.
+2. Use Add file > Upload files.
+3. Envie os três arquivos (index.html, manifest.webmanifest e sw.js) para a raiz.
+4. Faça Commit changes.
+5. Abra Settings > Pages.
+6. Em Build and deployment, escolha Deploy from a branch; branch main e pasta /(root); Save.
+7. Aguarde a publicação e abra o endereço Pages indicado pelo GitHub.
+
+NOTAS:
+- GPS requer HTTPS e permissão do navegador.
+- Esta versão acompanha o percurso enquanto a página está ativa; não é rastreamento contínuo em segundo plano.
+- Os percursos ficam no armazenamento local do aparelho/navegador. Ainda não há login, sincronização entre usuários, Waze, Google Maps ou clima.
+- Velocidade GPS pode oscilar; não use como instrumento de segurança ou para competir em velocidade.

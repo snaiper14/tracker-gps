@@ -1,0 +1,9 @@
+{
+  "name": "TRACKER GPS",
+  "short_name": "Tracker GPS",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#101827",
+  "description": "Registre percursos, distância, tempo e velocidade."
+}

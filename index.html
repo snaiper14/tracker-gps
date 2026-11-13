@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="Tracker GPS: registre percursos, distância, tempo e velocidade.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>TRACKER GPS</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--panel:#131f30;--muted:#9aabc0;--line:#26364b;--green:#36d399;--white:#f5f8fc}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#101c2e,#080e18);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:var(--white);min-height:100vh}
+    main{max-width:760px;margin:auto;padding:22px 16px 40px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}
+    h1{font-size:22px;letter-spacing:1.5px;margin:0}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+    .pill{border:1px solid #28694f;color:#8cf0c4;background:#123326;border-radius:99px;padding:6px 10px;font-size:11px}
+    .hero{background:linear-gradient(135deg,#173b38,#14283a);border:1px solid #28564f;border-radius:22px;padding:20px;margin-bottom:14px}
+    .label{font-size:12px;color:#b5c8d6}.speed{font-size:56px;font-weight:750;line-height:1.1;margin:8px 0}.unit{font-size:15px;color:#b5c8d6}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:16px}
+    .value{font-size:25px;font-weight:700;margin-top:7px}.muted{font-size:12px;color:var(--muted)}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+    button{border:0;border-radius:13px;padding:14px 12px;font-weight:700;font-size:14px;background:var(--green);color:#062016}
+    button.secondary{background:#26364b;color:var(--white);border:1px solid #3a4c63}button:disabled{opacity:.45}
+    .section{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:16px;margin-top:14px}
+    .section h2{font-size:16px;margin:0 0 12px}.status{color:var(--muted);font-size:13px;line-height:1.5}
+    input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0b1422;color:white;margin:7px 0 10px}
+    .route{border-top:1px solid var(--line);padding:12px 0}.route:first-of-type{border-top:0}.route strong{display:block}.route small{color:var(--muted)}
+    footer{color:#8192a8;font-size:11px;text-align:center;margin-top:22px;line-height:1.5}
+    @media(min-width:600px){.grid{grid-template-columns:repeat(4,1fr)}.speed{font-size:68px}}
+  </style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div><h1>TRACKER GPS</h1><div class="sub">Seu histórico começa aqui.</div></div>
+    <span class="pill">VERSÃO 0.1</span>
+  </header>
+
+  <section class="hero">
+    <div class="label">VELOCIDADE ATUAL — GPS</div>
+    <div class="speed"><span id="speed">0.0</span> <span class="unit">km/h</span></div>
+    <div class="label" id="gpsStatus">GPS ainda não iniciado</div>
+  </section>
+
+  <section class="grid">
+    <div class="card"><div class="muted">DISTÂNCIA</div><div class="value" id="distance">0,00 km</div></div>
+    <div class="card"><div class="muted">TEMPO</div><div class="value" id="elapsed">00:00:00</div></div>
+    <div class="card"><div class="muted">MÁXIMA DO PERCURSO</div><div class="value" id="maxSpeed">0,0 km/h</div></div>
+    <div class="card"><div class="muted">PONTOS GPS</div><div class="value" id="points">0</div></div>
+  </section>
+
+  <div class="actions">
+    <button id="start">Iniciar percurso</button>
+    <button id="stop" class="secondary" disabled>Finalizar e salvar</button>
+  </div>
+
+  <section class="section">
+    <h2>Salvar uma rota</h2>
+    <div class="muted">Dê um nome ao percurso depois de finalizá-lo.</div>
+    <input id="routeName" maxlength="50" placeholder="Ex.: Caminho do parque">
+    <div class="status" id="message" role="status">Permita o acesso à localização quando o navegador solicitar. Use o GPS ao ar livre para melhor precisão.</div>
+  </section>
+
+  <section class="section">
+    <h2>Histórico de percursos</h2>
+    <div id="history" class="status">Nenhum percurso salvo ainda.</div>
+    <button id="clear" class="secondary" style="margin-top:12px;width:100%">Apagar histórico deste aparelho</button>
+  </section>
+
+  <footer>Use somente em deslocamentos seguros e respeite as leis de trânsito. Não manuseie o celular enquanto estiver dirigindo. Os dados desta versão ficam salvos neste aparelho e não são sincronizados entre usuários.</footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let watchId = null, startedAt = 0, timer = null, lastPoint = null;
+  let meters = 0, maxKmh = 0, pointCount = 0, samples = [];
+  let active = false;
+  const STORE = "tracker-gps-routes-v01";
+  const fmtTime = ms => { const s=Math.floor(ms/1000), h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=s%60; return [h,m,sec].map(v=>String(v).padStart(2,"0")).join(":"); };
+  const fmtKm = m => (m/1000).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+" km";
+  const readRoutes = () => { try{return JSON.parse(localStorage.getItem(STORE)||"[]")}catch{return []} };
+  const renderHistory = () => {
+    const routes=readRoutes();
+    $("history").innerHTML = routes.length ? routes.slice().reverse().map(r =>
+      `<div class="route"><strong>${escapeHtml(r.name)}</strong><small>${new Date(r.date).toLocaleString("pt-BR")} · ${fmtKm(r.meters)} · ${fmtTime(r.duration)} · máxima ${r.maxKmh.toFixed(1)} km/h</small></div>`
+    ).join("") : "Nenhum percurso salvo ainda.";
+  };
+  const escapeHtml = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const update = () => {
+    $("distance").textContent=fmtKm(meters);
+    $("elapsed").textContent=fmtTime(Date.now()-startedAt);
+    $("maxSpeed").textContent=maxKmh.toFixed(1).replace(".",",")+" km/h";
+    $("points").textContent=pointCount;
+  };
+  const distanceBetween = (a,b) => {
+    const R=6371000, rad=x=>x*Math.PI/180, dLat=rad(b.latitude-a.latitude), dLon=rad(b.longitude-a.longitude);
+    const q=Math.sin(dLat/2)**2+Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*Math.sin(dLon/2)**2;
+    return 2*R*Math.atan2(Math.sqrt(q),Math.sqrt(1-q));
+  };
+  const stopTracking = () => {
+    if(watchId!==null) navigator.geolocation.clearWatch(watchId);
+    watchId=null; if(timer) clearInterval(timer); timer=null; active=false;
+    $("start").disabled=false; $("stop").disabled=true;
+  };
+  $("start").addEventListener("click", () => {
+    if(!("geolocation" in navigator)){ $("message").textContent="Este navegador não oferece GPS."; return; }
+    if(!window.isSecureContext){ $("message").textContent="Abra o site por HTTPS para liberar o GPS."; return; }
+    meters=0;maxKmh=0;pointCount=0;samples=[];lastPoint=null;startedAt=Date.now();active=true;
+    $("start").disabled=true;$("stop").disabled=false;$("gpsStatus").textContent="Buscando sinal GPS…";
+    $("message").textContent="Percurso em andamento. A precisão depende do aparelho e do sinal GPS.";
+    timer=setInterval(update,500); update();
+    watchId=navigator.geolocation.watchPosition(pos=>{
+      if(!active)return;
+      const c=pos.coords, now=Date.now();
+      if(c.accuracy>60){$("gpsStatus").textContent="Sinal fraco · precisão aproximada "+Math.round(c.accuracy)+" m";return;}
+      const point={latitude:c.latitude,longitude:c.longitude,time:now,accuracy:c.accuracy};
+      if(lastPoint){
+        const delta=distanceBetween(lastPoint,point);
+        const seconds=(now-lastPoint.time)/1000;
+        // Ignora saltos improváveis e ruído de GPS.
+        if(delta>=3 && delta/Math.max(seconds,1)>55){lastPoint=point;return;}
+        if(delta>=3){meters+=delta;samples.push([point.latitude,point.longitude]);}
+      } else {samples.push([point.latitude,point.longitude]);}
+      lastPoint=point;pointCount++;
+      const kmh=(c.speed!==null && c.speed>=0)?c.speed*3.6:0;
+      if(kmh>maxKmh && kmh<250) maxKmh=kmh;
+      $("speed").textContent=kmh.toFixed(1);
+      $("gpsStatus").textContent="GPS ativo · precisão aproximada "+Math.round(c.accuracy)+" m";
+      update();
+    },err=>{
+      const msgs={1:"Permissão de localização negada. Ative-a nas configurações do navegador.",2:"Sinal de localização indisponível.",3:"O GPS demorou para responder. Tente novamente."};
+      $("message").textContent=msgs[err.code]||"Não foi possível obter a localização.";
+      $("gpsStatus").textContent="GPS indisponível";
+      stopTracking();
+    },{enableHighAccuracy:true,maximumAge:1000,timeout:15000});
+  });
+  $("stop").addEventListener("click",()=>{
+    if(!active)return;
+    const duration=Date.now()-startedAt; stopTracking();
+    const routes=readRoutes();
+    routes.push({name:$("routeName").value.trim()||"Percurso sem nome",date:new Date().toISOString(),meters,duration,maxKmh,points:pointCount,coordinates:samples});
+    try{localStorage.setItem(STORE,JSON.stringify(routes));$("message").textContent="Percurso salvo neste aparelho!";renderHistory();}
+    catch{$("message").textContent="Armazenamento cheio; não foi possível salvar este percurso.";}
+    $("speed").textContent="0.0";
+  });
+  $("clear").addEventListener("click",()=>{
+    if(confirm("Apagar todos os percursos salvos neste aparelho?")){localStorage.removeItem(STORE);renderHistory();$("message").textContent="Histórico apagado.";}
+  });
+  renderHistory();
+  if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+})();
+</script>
+</body>
+</html>
