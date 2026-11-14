@@ -73,7 +73,7 @@
   const $ = id => document.getElementById(id);
   let watchId = null, startedAt = 0, timer = null, lastPoint = null;
   let meters = 0, maxKmh = 0, pointCount = 0, samples = [];
-  let active = false;
+  let active = false, lastFixAt = 0, filteredKmh = 0, slowSince = 0;
   const STORE = "tracker-gps-routes-v01";
   const fmtTime = ms => { const s=Math.floor(ms/1000), h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=s%60; return [h,m,sec].map(v=>String(v).padStart(2,"0")).join(":"); };
   const fmtKm = m => (m/1000).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+" km";
@@ -86,6 +86,8 @@
   };
   const escapeHtml = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const update = () => {
+    // Se o navegador parar de entregar posições, não mantenha a última velocidade na tela.
+    if(active && lastFixAt && Date.now()-lastFixAt>2500){ filteredKmh=0; slowSince=0; $("speed").textContent="0.0"; }
     $("distance").textContent=fmtKm(meters);
     $("elapsed").textContent=fmtTime(Date.now()-startedAt);
     $("maxSpeed").textContent=maxKmh.toFixed(1).replace(".",",")+" km/h";
@@ -104,7 +106,7 @@
   $("start").addEventListener("click", () => {
     if(!("geolocation" in navigator)){ $("message").textContent="Este navegador não oferece GPS."; return; }
     if(!window.isSecureContext){ $("message").textContent="Abra o site por HTTPS para liberar o GPS."; return; }
-    meters=0;maxKmh=0;pointCount=0;samples=[];lastPoint=null;startedAt=Date.now();active=true;
+    meters=0;maxKmh=0;pointCount=0;samples=[];lastPoint=null;startedAt=Date.now();active=true;lastFixAt=0;filteredKmh=0;slowSince=0;$("speed").textContent="0.0";
     $("start").disabled=true;$("stop").disabled=false;$("gpsStatus").textContent="Buscando sinal GPS…";
     $("message").textContent="Percurso em andamento. A precisão depende do aparelho e do sinal GPS.";
     timer=setInterval(update,500); update();
@@ -113,17 +115,31 @@
       const c=pos.coords, now=Date.now();
       if(c.accuracy>60){$("gpsStatus").textContent="Sinal fraco · precisão aproximada "+Math.round(c.accuracy)+" m";return;}
       const point={latitude:c.latitude,longitude:c.longitude,time:now,accuracy:c.accuracy};
+      let calculatedKmh=null;
       if(lastPoint){
         const delta=distanceBetween(lastPoint,point);
         const seconds=(now-lastPoint.time)/1000;
         // Ignora saltos improváveis e ruído de GPS.
-        if(delta>=3 && delta/Math.max(seconds,1)>55){lastPoint=point;return;}
+        if(delta>=3 && delta/Math.max(seconds,1)>55){lastPoint=point;lastFixAt=now;return;}
         if(delta>=3){meters+=delta;samples.push([point.latitude,point.longitude]);}
+        if(seconds>0.4 && seconds<8) calculatedKmh=(delta/seconds)*3.6;
       } else {samples.push([point.latitude,point.longitude]);}
-      lastPoint=point;pointCount++;
-      const kmh=(c.speed!==null && c.speed>=0)?c.speed*3.6:0;
-      if(kmh>maxKmh && kmh<250) maxKmh=kmh;
-      $("speed").textContent=kmh.toFixed(1);
+      lastPoint=point;lastFixAt=now;pointCount++;
+
+      // Prefere a velocidade do sensor GPS; usa o deslocamento como alternativa.
+      let rawKmh=(Number.isFinite(c.speed) && c.speed>=0 && c.speed<55)?c.speed*3.6:calculatedKmh;
+      if(!Number.isFinite(rawKmh) || rawKmh===null || rawKmh>200) rawKmh=0;
+      // Pequenas velocidades costumam ser ruído quando o aparelho está parado.
+      if(rawKmh<1.8){
+        if(!slowSince) slowSince=now;
+        if(now-slowSince>=1400) rawKmh=0;
+      } else slowSince=0;
+      // Suavização: reduz oscilações sem atrasar demais a leitura.
+      filteredKmh = (filteredKmh===0 && rawKmh>0) ? rawKmh : filteredKmh*0.55 + rawKmh*0.45;
+      if(rawKmh===0 && slowSince && now-slowSince>=1400) filteredKmh=0;
+      if(filteredKmh<1.2) filteredKmh=0;
+      if(filteredKmh>maxKmh && filteredKmh<200) maxKmh=filteredKmh;
+      $("speed").textContent=filteredKmh.toFixed(1);
       $("gpsStatus").textContent="GPS ativo · precisão aproximada "+Math.round(c.accuracy)+" m";
       update();
     },err=>{
